@@ -20,6 +20,7 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
     const [error, setError] = useState<string | null>(null);
     const [user, setUser] = useState<UserProfile | null>(null);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+    const [copiedDomain, setCopiedDomain] = useState<string | null>(null);
 
     // Fetch user info on mount
     useEffect(() => {
@@ -189,9 +190,29 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                                         <div className="flex items-start justify-between mb-4">
                                             <div className="min-w-0 flex-1 pr-4"> {/* min-w-0 is key for text truncation in flex items */}
                                                 <div className="flex items-center gap-3 mb-1">
-                                                    <h4 className="text-lg font-bold text-white truncate w-full" title={group.domain}>
+                                                    <h4 className="text-lg font-bold text-white truncate max-w-[calc(100%-2rem)]" title={group.domain}>
                                                         {group.domain}
                                                     </h4>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            navigator.clipboard.writeText(group.domain);
+                                                            setCopiedDomain(group.domain);
+                                                            setTimeout(() => setCopiedDomain(null), 2000);
+                                                        }}
+                                                        className="p-1.5 rounded-md hover:bg-slate-800 text-slate-500 hover:text-blue-400 transition-all shrink-0"
+                                                        title="Copy domain"
+                                                    >
+                                                        {copiedDomain === group.domain ? (
+                                                            <svg className="w-4 h-4 text-green-500 animate-in zoom-in duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                            </svg>
+                                                        ) : (
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                                            </svg>
+                                                        )}
+                                                    </button>
                                                 </div>
                                                 <div className="flex items-center gap-2 text-xs">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
