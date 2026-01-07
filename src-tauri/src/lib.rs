@@ -13,9 +13,12 @@ async fn login(window: tauri::Window, client_id: String) -> Result<String, Strin
 }
 
 #[tauri::command]
-async fn get_spam_domains(token: String) -> Result<Vec<outlook::SpamEmail>, String> {
+async fn get_spam_domains(
+    token: String,
+    limit: Option<u32>,
+) -> Result<Vec<outlook::SpamEmail>, String> {
     // Fetch detailed emails via Graph API
-    let emails = outlook::fetch_spam_emails(&token).await?;
+    let emails = outlook::fetch_spam_emails(&token, limit).await?;
     Ok(emails)
 }
 

@@ -6,6 +6,7 @@ export interface SpamEmail {
     sender_address: string;
     spf_domain?: string;
     dkim_domain?: string;
+    received_date?: string;
 }
 
 export async function login(clientId: string): Promise<string> {
@@ -18,8 +19,8 @@ export interface UserProfile {
     user_principal_name?: string;
 }
 
-export function getSpamDomains(token: string): Promise<SpamEmail[]> {
-    return invoke('get_spam_domains', { token });
+export function getSpamDomains(token: string, limit?: number): Promise<SpamEmail[]> {
+    return invoke('get_spam_domains', { token, limit });
 }
 
 export function getUserInfo(token: string): Promise<UserProfile> {

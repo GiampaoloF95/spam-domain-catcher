@@ -21,6 +21,7 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
     const [user, setUser] = useState<UserProfile | null>(null);
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [copiedDomain, setCopiedDomain] = useState<string | null>(null);
+    const [fetchLimit, setFetchLimit] = useState<number>(50);
 
     // Fetch user info on mount
     useEffect(() => {
@@ -30,8 +31,10 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
     const handleFetch = async () => {
         setLoading(true);
         setError(null);
+        setError(null);
         try {
-            const emails = await getSpamDomains(token);
+            // If limit is 9999, we treat it as "Max" (backend handles cap at 999)
+            const emails = await getSpamDomains(token, fetchLimit);
 
             // Aggregation Logic
             const groupMap = new Map<string, DomainGroup>();
@@ -130,10 +133,29 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                     <div className="flex flex-col items-center justify-center h-full space-y-6 animate-fade-in-up">
                         <div className="p-8 rounded-2xl bg-slate-900/50 border border-slate-800 shadow-2xl backdrop-blur-sm max-w-md text-center">
                             <h2 className="text-2xl font-bold text-white mb-2">Ready to Analyze</h2>
-                            <p className="text-slate-400 mb-8 leading-relaxed">
+                            <p className="text-slate-400 mb-6 leading-relaxed">
                                 Scan your Junk Email folder to identify the true origin of spam.
                                 We'll bypass the spoofed "From" address and look at the headers.
                             </p>
+
+                            <div className="flex flex-col items-center gap-3 mb-8 w-full">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Fetch Limit</label>
+                                <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700/50">
+                                    {[50, 100, 500, 9999].map((limit) => (
+                                        <button
+                                            key={limit}
+                                            onClick={() => setFetchLimit(limit)}
+                                            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${fetchLimit === limit
+                                                    ? 'bg-slate-600 text-white shadow-sm'
+                                                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                                                }`}
+                                        >
+                                            {limit === 9999 ? 'Max' : limit}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             <button
                                 onClick={handleFetch}
                                 className="group relative w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02] transition-all duration-200 overflow-hidden"
@@ -237,6 +259,11 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                                                         {email.subject || '(No Subject)'}
                                                     </div>
                                                     <div className="flex items-center gap-2 text-slate-500 truncate">
+                                                        {email.received_date && (
+                                                            <span className="text-slate-600 text-[10px] border-r border-slate-700 pr-2 mr-1">
+                                                                {new Date(email.received_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                                            </span>
+                                                        )}
                                                         <span title={email.sender_address}>From: {email.sender_name || email.sender_address}</span>
                                                         {email.dkim_domain && email.dkim_domain !== 'none' && (
                                                             <span className="text-green-600/70" title={`DKIM: ${email.dkim_domain}`}>✓ DKIM ({email.dkim_domain})</span>

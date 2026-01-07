@@ -9,6 +9,7 @@ pub struct SpamEmail {
     pub sender_address: String,
     pub spf_domain: Option<String>,
     pub dkim_domain: Option<String>,
+    pub received_date: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -22,6 +23,8 @@ struct Message {
     sender: Option<Sender>,
     #[serde(rename = "internetMessageHeaders")]
     headers: Option<Vec<Header>>,
+    #[serde(rename = "receivedDateTime")]
+    received_date_time: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -42,14 +45,26 @@ struct EmailAddress {
     address: Option<String>,
 }
 
-pub async fn fetch_spam_emails(access_token: &str) -> Result<Vec<SpamEmail>, String> {
+pub async fn fetch_spam_emails(
+    access_token: &str,
+    limit: Option<u32>,
+) -> Result<Vec<SpamEmail>, String> {
     let client = reqwest::Client::new();
+
+    // Default to 50 if no limit provided, or use the provided limit.
+    // Graph API max page size is 999.
+    let top_value = limit.unwrap_or(50).min(999).to_string();
+
     let res = client
         .get("https://graph.microsoft.com/v1.0/me/mailFolders/junkEmail/messages")
         .header(AUTHORIZATION, format!("Bearer {}", access_token))
         .query(&[
-            ("$select", "sender,subject,internetMessageHeaders"),
-            ("$top", "50"),
+            (
+                "$select",
+                "sender,subject,internetMessageHeaders,receivedDateTime",
+            ),
+            ("$orderby", "receivedDateTime desc"),
+            ("$top", &top_value),
         ])
         .send()
         .await
@@ -110,6 +125,7 @@ pub async fn fetch_spam_emails(access_token: &str) -> Result<Vec<SpamEmail>, Str
                 sender_address: address,
                 spf_domain,
                 dkim_domain,
+                received_date: msg.received_date_time,
             }
         })
         .collect();
