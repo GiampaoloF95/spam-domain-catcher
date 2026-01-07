@@ -22,7 +22,8 @@ SpamOrigin is a desktop application for analyzing email origins in your Outlook 
 
 ## Getting Started
 
-1. **Install dependencies**:
+1. **Install Frontend Dependencies**:
+
    ```bash
    npm install
    ```
@@ -32,10 +33,27 @@ SpamOrigin is a desktop application for analyzing email origins in your Outlook 
    npm run tauri dev
    ```
 
-3. **Build**:
+3. **Build Locally**:
    ```bash
    npm run tauri build
    ```
+
+## 🚀 Releases & CI/CD
+The project is configured with GitHub Actions to automatically build and release the application for **Windows** and **Android**.
+
+To trigger a new build:
+1. **Create a tag**:
+   ```bash
+   git tag v1.0.0
+   ```
+2. **Push the tag**:
+   ```bash
+   git push origin v1.0.0
+   ```
+GitHub will automatically:
+- Compile the Windows installer (`.exe`).
+- Build the Android APK.
+- Create a **Draft Release** in your repository with both files attached.
 
 ## How It Works
 
