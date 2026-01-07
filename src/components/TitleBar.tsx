@@ -26,9 +26,10 @@ export default function TitleBar() {
     const close = () => appWindow.close();
 
     return (
-        <div data-tauri-drag-region className="h-8 bg-slate-900 flex justify-between items-center select-none fixed top-0 left-0 right-0 z-50 border-b border-slate-800">
-            <div className="pl-4 text-xs font-bold text-slate-500 tracking-wider pointer-events-none">
-                SPAM ORIGIN
+        <div data-tauri-drag-region className="h-10 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 select-none fixed top-0 left-0 right-0 z-50">
+            <div data-tauri-drag-region className="flex items-center gap-3 text-sm font-medium text-slate-300">
+                <img src="/app-icon.png" alt="Logo" className="w-5 h-5" data-tauri-drag-region />
+                <span data-tauri-drag-region>SpamOrigin</span>
             </div>
             <div className="flex h-full">
                 <button

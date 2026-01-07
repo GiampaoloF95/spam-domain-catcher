@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getSpamDomains, SpamEmail, getUserInfo, UserProfile } from '../api';
+import StatsModal from './StatsModal';
 
 interface DashboardProps {
     token: string;
@@ -22,72 +23,81 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
     const [copiedDomain, setCopiedDomain] = useState<string | null>(null);
     const [fetchLimit, setFetchLimit] = useState<number>(50);
+    const [rawEmails, setRawEmails] = useState<SpamEmail[]>([]);
+    const [groupingMode, setGroupingMode] = useState<'dkim' | 'spf'>('dkim');
+    const [showStats, setShowStats] = useState(false);
 
     // Fetch user info on mount
     useEffect(() => {
         getUserInfo(token).then(setUser).catch(console.error);
     }, [token]);
 
-    const handleFetch = async () => {
-        setLoading(true);
-        setError(null);
-        setError(null);
-        try {
-            // If limit is 9999, we treat it as "Max" (backend handles cap at 999)
-            const emails = await getSpamDomains(token, fetchLimit);
+    // Re-aggregate when rawEmails or groupingMode changes
+    useEffect(() => {
+        if (rawEmails.length === 0) return;
 
-            // Aggregation Logic
-            const groupMap = new Map<string, DomainGroup>();
+        const groupMap = new Map<string, DomainGroup>();
 
-            // Helper to extract root domain (simple heuristic: last two parts)
-            // e.g., sub.domain.com -> domain.com
-            // This covers .com, .net, .org well. For ccTLDs like .co.uk it's imperfect but acceptable for this use case.
-            const getRootDomain = (fullDomain: string) => {
-                const parts = fullDomain.split('.');
-                if (parts.length > 2) {
-                    return parts.slice(-2).join('.');
-                }
-                return fullDomain;
-            };
+        const getRootDomain = (fullDomain: string) => {
+            const parts = fullDomain.split('.');
+            if (parts.length > 2) {
+                return parts.slice(-2).join('.');
+            }
+            return fullDomain;
+        };
 
-            emails.forEach(email => {
-                // Determine the "True Origin"
-                let origin = '';
-                let type: DomainGroup['sourceType'] = 'Sender';
+        rawEmails.forEach(email => {
+            let origin = '';
+            let type: DomainGroup['sourceType'] = 'Sender';
 
-                // Priority: DKIM > SPF > HELO > Sender
-                // Refinement: If DKIM is "none", treat it as missing and fall back to SPF
+            if (groupingMode === 'dkim') {
                 if (email.dkim_domain && email.dkim_domain.toLowerCase() !== 'none') {
                     origin = email.dkim_domain;
                     type = 'DKIM';
                 } else if (email.spf_domain && email.spf_domain.toLowerCase() !== 'none') {
                     origin = email.spf_domain;
                     type = 'SPF';
-                    // Note: Our backend now puts HELO into spf_domain if mailfrom is missing
-                    // We could distinguish HELO if we wanted, but for blocking purposes, it's the "Server Domain"
                 } else {
-                    // Fallback to sender domain
                     const parts = email.sender_address.split('@');
                     origin = parts.length > 1 ? parts[1] : email.sender_address;
                     type = 'Sender';
                 }
-
-                origin = origin.toLowerCase();
-                const rootDomain = getRootDomain(origin);
-
-                if (!groupMap.has(rootDomain)) {
-                    groupMap.set(rootDomain, { domain: rootDomain, count: 0, emails: [], sourceType: type });
+            } else { // SPF Priority
+                if (email.spf_domain && email.spf_domain.toLowerCase() !== 'none') {
+                    origin = email.spf_domain;
+                    type = 'SPF';
+                } else if (email.dkim_domain && email.dkim_domain.toLowerCase() !== 'none') {
+                    origin = email.dkim_domain;
+                    type = 'DKIM';
+                } else {
+                    const parts = email.sender_address.split('@');
+                    origin = parts.length > 1 ? parts[1] : email.sender_address;
+                    type = 'Sender';
                 }
+            }
 
-                const g = groupMap.get(rootDomain)!;
-                g.count++;
-                // Update type if we have a better source for this group (e.g. mixture) - mostly keep first found
-                if (g.emails.length < 5) g.emails.push(email); // Keep samples
-            });
+            origin = origin.toLowerCase();
+            const rootDomain = getRootDomain(origin);
 
-            // Convert to array and sort
-            const sorted = Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
-            setGroups(sorted);
+            if (!groupMap.has(rootDomain)) {
+                groupMap.set(rootDomain, { domain: rootDomain, count: 0, emails: [], sourceType: type });
+            }
+
+            const g = groupMap.get(rootDomain)!;
+            g.count++;
+            if (g.emails.length < 5) g.emails.push(email);
+        });
+
+        const sorted = Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
+        setGroups(sorted);
+    }, [rawEmails, groupingMode]);
+
+    const handleFetch = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const emails = await getSpamDomains(token, fetchLimit);
+            setRawEmails(emails); // Triggers the effect above
             setFetched(true);
         } catch (e) {
             setError(String(e));
@@ -112,6 +122,13 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                             Logged in as <span className="text-slate-200 font-medium">{user.mail || user.user_principal_name || user.display_name}</span>
                         </div>
                     )}
+                    <button
+                        onClick={() => setShowStats(true)}
+                        className={`p-2 text-slate-400 hover:text-white transition-colors ${fetched ? 'block' : 'hidden'}`}
+                        title="View Statistics"
+                    >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                    </button>
                     <button
                         onClick={onLogout}
                         className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
@@ -146,8 +163,8 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                                             key={limit}
                                             onClick={() => setFetchLimit(limit)}
                                             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${fetchLimit === limit
-                                                    ? 'bg-slate-600 text-white shadow-sm'
-                                                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                                                ? 'bg-slate-600 text-white shadow-sm'
+                                                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
                                                 }`}
                                         >
                                             {limit === 9999 ? 'Max' : limit}
@@ -188,13 +205,13 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                 {fetched && !loading && (
                     <div className="max-w-6xl mx-auto space-y-8 p-8 pb-20">
                         <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.8fr] gap-6">
-                            <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 shadow-lg">
+                            <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 shadow-lg min-w-0">
                                 <div className="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">Total Scanned</div>
-                                <div className="text-3xl font-bold text-white">{groups.reduce((acc, g) => acc + g.count, 0)}</div>
+                                <div className="text-3xl font-bold text-white truncate" title={`${groups.reduce((acc, g) => acc + g.count, 0)}`}>{groups.reduce((acc, g) => acc + g.count, 0)}</div>
                             </div>
-                            <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 shadow-lg">
+                            <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 shadow-lg min-w-0">
                                 <div className="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">Unique Sources</div>
-                                <div className="text-3xl font-bold text-blue-400">{groups.length}</div>
+                                <div className="text-3xl font-bold text-blue-400 truncate" title={`${groups.length}`}>{groups.length}</div>
                             </div>
                             <div className="p-6 rounded-xl bg-slate-900 border border-slate-800 shadow-lg min-w-0">
                                 <div className="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">Top Offender</div>
@@ -204,96 +221,141 @@ export default function Dashboard({ token, onLogout }: DashboardProps) {
                             </div>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-bold text-white pl-1">Identified Sources</h3>
-                            <div className="grid gap-4">
-                                {groups.map((group) => (
-                                    <div key={group.domain} className="group p-5 rounded-xl bg-slate-900 border border-slate-800 hover:border-blue-500/50 transition-all shadow-md">
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div className="min-w-0 flex-1 pr-4"> {/* min-w-0 is key for text truncation in flex items */}
-                                                <div className="flex items-center gap-3 mb-1">
-                                                    <h4 className="text-lg font-bold text-white truncate max-w-[calc(100%-2rem)]" title={group.domain}>
-                                                        {group.domain}
-                                                    </h4>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            navigator.clipboard.writeText(group.domain);
-                                                            setCopiedDomain(group.domain);
-                                                            setTimeout(() => setCopiedDomain(null), 2000);
-                                                        }}
-                                                        className="p-1.5 rounded-md hover:bg-slate-800 text-slate-500 hover:text-blue-400 transition-all shrink-0"
-                                                        title="Copy domain"
-                                                    >
-                                                        {copiedDomain === group.domain ? (
-                                                            <svg className="w-4 h-4 text-green-500 animate-in zoom-in duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                        ) : (
-                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                                            </svg>
-                                                        )}
-                                                    </button>
-                                                </div>
-                                                <div className="flex items-center gap-2 text-xs">
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
-                                                        ${group.sourceType === 'DKIM' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
-                                                            group.sourceType === 'SPF' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' :
-                                                                'bg-gray-500/10 text-gray-400 border border-gray-500/20'}`}>
-                                                        Via {group.sourceType}
-                                                    </span>
-                                                    <span className="text-slate-500">Responsible for {group.count} emails</span>
-                                                </div>
+                            <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700/50">
+                                <button
+                                    onClick={() => setGroupingMode('dkim')}
+                                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${groupingMode === 'dkim' ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                                >
+                                    DKIM
+                                </button>
+                                <button
+                                    onClick={() => setGroupingMode('spf')}
+                                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${groupingMode === 'spf' ? 'bg-slate-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                                >
+                                    SPF
+                                </button>
+                            </div>
+                        </div>
+
+                        <StatsModal
+                            isOpen={showStats}
+                            onClose={() => setShowStats(false)}
+                            rawEmails={rawEmails}
+                            groups={groups}
+                        />
+
+                        <div className="grid gap-4">
+                            {groups.map((group) => (
+                                <div key={group.domain} className="group p-5 rounded-xl bg-slate-900 border border-slate-800 hover:border-blue-500/50 transition-all shadow-md min-w-0">
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="min-w-0 flex-1 pr-4">
+                                            <div className="flex items-center gap-3 mb-1">
+                                                <h4 className="text-lg font-bold text-white truncate max-w-[calc(100%-2rem)]" title={group.domain}>
+                                                    {group.domain}
+                                                </h4>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigator.clipboard.writeText(group.domain);
+                                                        setCopiedDomain(group.domain);
+                                                        setTimeout(() => setCopiedDomain(null), 2000);
+                                                    }}
+                                                    className="p-1.5 rounded-md hover:bg-slate-800 text-slate-500 hover:text-blue-400 transition-all shrink-0"
+                                                    title="Copy domain"
+                                                >
+                                                    {copiedDomain === group.domain ? (
+                                                        <svg className="w-4 h-4 text-green-500 animate-in zoom-in duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                    ) : (
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                                        </svg>
+                                                    )}
+                                                </button>
                                             </div>
-                                            <div className="text-2xl font-bold text-slate-700 group-hover:text-blue-500/50 transition-colors">
-                                                {group.count}
+                                            <div className="flex items-center gap-2 text-xs">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
+                                                        ${group.sourceType === 'DKIM' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+                                                        group.sourceType === 'SPF' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' :
+                                                            'bg-gray-500/10 text-gray-400 border border-gray-500/20'}`}>
+                                                    Via {group.sourceType}
+                                                </span>
+                                                <span className="text-slate-500">Responsible for {group.count} emails</span>
                                             </div>
                                         </div>
-
-                                        {/* Samples */}
-                                        <div className="bg-slate-950/50 rounded-lg p-3 space-y-2 border border-slate-800/50">
-                                            {(expandedGroups.has(group.domain) ? group.emails : group.emails.slice(0, 3)).map((email, i) => (
-                                                <div key={i} className="flex flex-col gap-0.5 text-xs animate-in fade-in duration-300">
-                                                    <div className="text-slate-300 font-medium truncate" title={email.subject}>
-                                                        {email.subject || '(No Subject)'}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 text-slate-500 truncate">
-                                                        {email.received_date && (
-                                                            <span className="text-slate-600 text-[10px] border-r border-slate-700 pr-2 mr-1">
-                                                                {new Date(email.received_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                                                            </span>
-                                                        )}
-                                                        <span title={email.sender_address}>From: {email.sender_name || email.sender_address}</span>
-                                                        {email.dkim_domain && email.dkim_domain !== 'none' && (
-                                                            <span className="text-green-600/70" title={`DKIM: ${email.dkim_domain}`}>✓ DKIM ({email.dkim_domain})</span>
-                                                        )}
-                                                        {email.spf_domain && email.spf_domain !== 'none' && (
-                                                            <span className="text-orange-600/70" title={`SPF: ${email.spf_domain}`}>✓ SPF ({email.spf_domain})</span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {group.emails.length > 3 && (
-                                                <button
-                                                    onClick={() => {
-                                                        const next = new Set(expandedGroups);
-                                                        if (next.has(group.domain)) next.delete(group.domain);
-                                                        else next.add(group.domain);
-                                                        setExpandedGroups(next);
-                                                    }}
-                                                    className="w-full text-[10px] text-blue-400/70 hover:text-blue-400 text-center italic mt-1 py-1 transition-colors"
-                                                >
-                                                    {expandedGroups.has(group.domain)
-                                                        ? 'Show less'
-                                                        : `+ ${group.emails.length - 3} more`
-                                                    }
-                                                </button>
-                                            )}
+                                        <div className="text-2xl font-bold text-slate-700 group-hover:text-blue-500/50 transition-colors">
+                                            {group.count}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
+
+                                    <div className="bg-slate-950/50 rounded-lg p-3 space-y-2 border border-slate-800/50">
+                                        {(expandedGroups.has(group.domain) ? group.emails : group.emails.slice(0, 3)).map((email, i) => (
+                                            <div key={i} className="flex flex-col gap-0.5 text-xs animate-in fade-in duration-300">
+                                                <div className="text-slate-300 font-medium truncate" title={email.subject}>
+                                                    {email.subject || '(No Subject)'}
+                                                </div>
+                                                <div className="flex items-center gap-2 text-slate-500 truncate">
+                                                    {email.received_date && (
+                                                        <span className="text-slate-600 text-[10px] border-r border-slate-700 pr-2 mr-1">
+                                                            {new Date(email.received_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                                        </span>
+                                                    )}
+                                                    <span title={email.sender_address}>From: {email.sender_name || email.sender_address}</span>
+                                                    {email.dkim_domain && email.dkim_domain !== 'none' && (
+                                                        <span className="text-green-600/70 flex items-center gap-1" title={`DKIM: ${email.dkim_domain}`}>
+                                                            ✓ DKIM ({email.dkim_domain})
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    navigator.clipboard.writeText(email.dkim_domain!);
+                                                                }}
+                                                                className="hover:text-green-400 p-0.5 rounded"
+                                                                title="Copy DKIM domain"
+                                                            >
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                                                            </button>
+                                                        </span>
+                                                    )}
+                                                    {email.spf_domain && email.spf_domain !== 'none' && (
+                                                        <span className="text-orange-600/70 flex items-center gap-1" title={`SPF: ${email.spf_domain}`}>
+                                                            ✓ SPF ({email.spf_domain})
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    navigator.clipboard.writeText(email.spf_domain!);
+                                                                }}
+                                                                className="hover:text-orange-400 p-0.5 rounded"
+                                                                title="Copy SPF domain"
+                                                            >
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                                                            </button>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {group.emails.length > 3 && (
+                                            <button
+                                                onClick={() => {
+                                                    const next = new Set(expandedGroups);
+                                                    if (next.has(group.domain)) next.delete(group.domain);
+                                                    else next.add(group.domain);
+                                                    setExpandedGroups(next);
+                                                }}
+                                                className="w-full text-[10px] text-blue-400/70 hover:text-blue-400 text-center italic mt-1 py-1 transition-colors"
+                                            >
+                                                {expandedGroups.has(group.domain)
+                                                    ? 'Show less'
+                                                    : `+ ${group.emails.length - 3} more`
+                                                }
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
