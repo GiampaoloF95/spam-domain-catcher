@@ -1,7 +1,6 @@
 use oauth2::basic::BasicClient;
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
-    TokenUrl,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -9,21 +8,18 @@ use tauri::{Emitter, Manager, Window};
 use url::Url;
 
 pub async fn perform_login(window: Window, client_id: String) -> Result<String, String> {
-    let client = BasicClient::new(
-        ClientId::new(client_id.clone()),
-        None,
-        AuthUrl::new("https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string())
+    let client = BasicClient::new(ClientId::new(client_id.clone()))
+        .set_auth_uri(
+            AuthUrl::new(
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
+            )
             .map_err(|e| e.to_string())?,
-        Some(
-            TokenUrl::new("https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string())
-                .map_err(|e| e.to_string())?,
-        ),
-    )
-    .set_redirect_uri(
-        // Microsoft Native Apps allow http://localhost:<port>
-        // We remove /callback to comply with strict matching if paths aren't registered.
-        RedirectUrl::new("http://localhost:15678".to_string()).map_err(|e| e.to_string())?,
-    );
+        )
+        .set_redirect_uri(
+            // Microsoft Native Apps allow http://localhost:<port>
+            // We remove /callback to comply with strict matching if paths aren't registered.
+            RedirectUrl::new("http://localhost:15678".to_string()).map_err(|e| e.to_string())?,
+        );
 
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
