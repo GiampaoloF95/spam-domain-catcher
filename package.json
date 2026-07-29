@@ -11,7 +11,7 @@
     "version": "node scripts/sync-version.js"
   },
   "dependencies": {
-    "react": "^19.2.4",
+    "react": "^19.2.5",
     "react-dom": "^19.2.4",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2"
