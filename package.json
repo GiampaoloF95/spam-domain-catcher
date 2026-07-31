@@ -24,7 +24,7 @@
     "vite": "^8.0.8",
     "@tauri-apps/cli": "^2",
     "tailwindcss": "^4.2.2",
-    "postcss": "^8.5.8",
+    "postcss": "^8.5.24",
     "autoprefixer": "^10.5.0"
   }
 }
